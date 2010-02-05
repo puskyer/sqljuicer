@@ -1,14 +1,14 @@
 #!/usr/bin/perl -w
-# Lista as transacoes de um banco pelo transaction log
-# uso: SQLJuicer.pl -s servidor -b banco_de_dados [-h]
+# List database transactions using Transaction Log
+# use: SQLJuicer.pl -s server -b database [-h]
 # 
-# -b :nome do banco
-# -s :nome do servidor
-# -h :mensagem de ajuda
+# -b :database name
+# -s :sql server name
+# -h :this help
 # 
-# Dependecias:
+# Dependecies:
 #       SQLCMD
-#
+#   
 #
 use Getopt::Std;
 use Time::Local;
@@ -18,13 +18,13 @@ use Win32::OLE::Const 'Microsoft ActiveX Data Objects';
 
 my $ver="0.1";
 
-#opcoes
+#options
 %args = ( );
 getopts("b:s:h", \%args);
 
-#coloca mensagem explicativa
+#write small help
 if ($args{h}) {
-   &cabecalho;
+   &myheader;
    print <<DETALHE ;
 uso: SQLJuicer.pl -s servidor -b banco_de_dados [-h]
  
@@ -40,7 +40,7 @@ die "Entre com o nome do servidor SQL Server\n" unless ($args{s});
 
 die "Entre com o nome do banco de dados SQL Server\n" unless ($args{b});
 
-# ----- variaveis do script
+# ----- script var
 my @tranDet;
 my %dados;
 my $banco = $args{b};
@@ -51,27 +51,27 @@ my %ultlinha = ( );
 
 #--------------------------
 
-&cabecalho;
+&myheader;
 
-#pega cada transaction ID onde houve commit
-&captatranID(\@tranDet, $banco, $servidor);
+#get each Transaction ID with commit
+&getTransactionIDs(\@tranDet, $banco, $servidor);
 
-#Varre cada transacao na ordem inversa que ocorreram
+#Loop through transactions commited, ordered by date/time 
+#from last to first
 foreach my $pID (@tranDet) {
 
-   #pega a data da transacao
+   #get transaction datetime
    my $dtTr = $pID->{DATA};
 
    if ($dtTr) {
 
-      #Traduz as operacoes
-      &captalinhasOper($pID, $banco, $servidor, \%ultlinha);
+      #parse the operation
+      &getOperations($pID, $banco, $servidor, \%ultlinha);
 
    }
 }
 
-#lista os resultados
-
+#print results
 foreach my $pID (reverse @tranDet) {
 
    print "=" x 75 ."\n";
@@ -89,11 +89,11 @@ foreach my $pID (reverse @tranDet) {
    }
 }
 
-#### FIM DO PROGRAMA PRINCIPAL #####
+#### END OF MAIN ROUTINE #####
 
-####################################### Sub rotinas  ######################################################
+####################################### PROCEDURES  ######################################################
 
-sub cabecalho {
+sub myheader {
    print <<CABEC;
 
 SQLJuicer.pl v$ver
@@ -108,7 +108,7 @@ CABEC
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captatranID {
+sub getTransactionIDs {
 
   my $p1 = shift;
   my $banco = shift;
@@ -124,7 +124,7 @@ sub captatranID {
   $Conn->Open($DSN);
 
 
-  #busca os transaction ID de todas as operacoes com COMMIT, em ordem decrescente de datas
+  #get all commited transaction IDs ordered by datetime from last to first
   my $SQL ="Select [Transaction ID], [End Time] from ::fn_dblog(null,null) where Operation = \'LOP_COMMIT_XACT\' Order by [End Time] DESC";
 
   $RS->Open($SQL, $Conn, 1, 1);
@@ -146,10 +146,10 @@ sub captatranID {
 
 }
 
-#---------------------------------- UTILITARIOS ------------------------------------------------------
+#---------------------------------- UTILITIES ------------------------------------------------------
 
 sub execquery {
-#executa queries usando o sqlcmd
+#exec queries using sqlcmd
 
   my $cmd = shift;
   my $server = shift;
@@ -163,8 +163,8 @@ sub execquery {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captabytes {
-#busca a sequencia de bytes relativa ao pageID e ao Slot dentro do resultado do dbcc page
+sub getbytesfromDBCC {
+#parse dbcc page results extracting bytes related to pageID and Slot (parameters)
 
    my $ent = shift;
    my $slotID = shift;
@@ -182,7 +182,7 @@ sub captabytes {
 #-----------------------------------------------------------------------------------------------------
 
 sub stringtoarray {
-# transforma uma string de bytes extraida do resultado do dbcc page em um array de bytes
+# transform string of bytes in array of bytes
 
    my $bytes = shift;
 
@@ -195,7 +195,7 @@ sub stringtoarray {
 #-----------------------------------------------------------------------------------------------------
 
 sub bytetoword {
-# transforma um array de bytes em um array de words (unsigned small int)      
+# transform array of bytes in array of words (unsigned small int)
 
    my (@wordaux) = @_;  
    
@@ -212,8 +212,8 @@ sub bytetoword {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub diferente {
-# retorna true se os parametros tem valores diferentes
+sub IsDifferent {
+# compare parameters (numbers or strings), returning true if they are different
 
    my ($a, $b) = (@_);
 
@@ -224,8 +224,8 @@ sub diferente {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captatab {
-# busca o ObjectID da tabela usada na alteracao
+sub parseObjectID {
+# parse ObjectID of table affected in transaction from dbcc result
 
    my $ent = shift;
    my $banco = shift;
@@ -233,14 +233,14 @@ sub captatab {
 
    my ($tabID) = ($ent =~ /Metadata\: ObjectId \=\s+(\d+)/s);
 
-   return ($tabID, &captabID($tabID, $banco, $server));
+   return ($tabID, &getTableName($tabID, $banco, $server));
 
 }
 
 #----------------------------------- UTILITARIOS DE BANCO -----------------------------------------------------------------
 
-sub captachaves {
-# mapeia os campos chaves da linha alterada
+sub getKeyColumns {
+# get key columns of the affected table
 
    my $tabID = shift;
    my $banco = shift;
@@ -273,20 +273,13 @@ sub captachaves {
    $RS->Close;
    $Conn->Close;
 
-   #faz um parse dos valores da pagina, buscando a coluna especifica
-   #foreach $i (keys %$refchave) {
-
-#       if ($pagina =~ /Slot $slotID Column $i Offset 0x[0-9A-Fa-f]+ Length \d+\s*\n\n(\w+\s*\=.+)/) {
-#          $refchave->{$i} = $1;
-#       } 
-#   } 
 
 }
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captaestruturatabela {
-#mapeia a estrutura da tabela
+sub getTableStructure {
+# get table columns, types, etc
 
    my $tabID = shift;
    my $banco = shift;
@@ -308,7 +301,7 @@ sub captaestruturatabela {
 
    $RS->Open($SQL, $Conn, 1, 1);
 
-   #a primeira coluna fixa comeca apos 4 bytes de controle
+   #first fixed size column starts after 4 bytes
    my $offset = 4;
 
    until ($RS->EOF) {
@@ -343,8 +336,8 @@ sub captaestruturatabela {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captabID {
-#pega o nome da tabela pelo ObjectID
+sub getTableName {
+# get table name using the object ID
 
    my $tabID = shift;
    my $banco = shift;
@@ -380,7 +373,7 @@ sub captabID {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub decodifica_valores {
+sub decodeValue {
    my $tipo = shift;
    my $refvalores = shift;
    my $escala = shift;
@@ -410,7 +403,7 @@ sub decodifica_valores {
       $valor = 0;
 
       if ($refvalores->[0] == 1) {
-         #o byte 0 sempre vem com o valor 01 (?) entao esta sendo pulado
+         #byte at offset 0 always has 01, so it's jumped ->>> NOT SURE, IT WORKED WELL IN ALL TESTS SO FAR
          for (my $i=1; $i < scalar(@$refvalores); $i++) {
         
              $valor += ($refvalores->[$i] << (8*($i-1)));
@@ -434,7 +427,7 @@ sub decodifica_valores {
    elsif ($tipo == 239) {
       # nchar
 
-      #formata a string unicode
+      #string unicode format
       $valor = pack("U*", &bytetoword(@$refvalores));            
    }   
    elsif ($tipo == 167) {
@@ -535,7 +528,7 @@ sub decodifica_valores {
       # float    
       $valor = "0x";
            
-      #remonta a string em hexa
+      #string in HEX
       foreach (@$refvalores) {$valor = $valor . sprintf("%x",$_)}
    
       $valor = unpack "d", pack "H*", $valor;   
@@ -543,7 +536,7 @@ sub decodifica_valores {
    
    }
    else {
-      # msg para os campos nao tratados
+      # message for not translated column types
       $valor = "Tipo $tipo valor=@$refvalores"; 
    }
 
@@ -553,89 +546,91 @@ sub decodifica_valores {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub decodifica_colunas {
+sub extractRawColumns {
+# take all columns and extract its raw contents
+
    my $refbytes = shift;
    my $refstruc = shift;
    my $coluna = shift;
 
-   #offset do numero de colunas
+   #column count offset
    my $offnumcol = ($refbytes->[3] << 8) + $refbytes->[2];
 
-   #numero de colunas
+   #column count
    my $numcol = ($refbytes->[$offnumcol+1] << 8) + $refbytes->[$offnumcol];
 
    my ($bytesbitmap, $valor);
 
-   #quantidade de bytes para o null bitmap
+   #how many bytes for null bitmap
    {use integer;
      $bytesbitmap = ($numcol/8) + (($numcol % 8) == 0 ? 0: 1);
    }
 
-   #numero de colunas variaveis
+   #how many variable size columns
    my $numcolvar = (scalar(@$refbytes) > ($offnumcol+3+$bytesbitmap)) ? ($refbytes->[$offnumcol+3+$bytesbitmap] << 8) + $refbytes->[$offnumcol+$bytesbitmap+2] : 0;
 
-   #numero de colunas fixas
+   #how many fixed size columns
    my $numcolfixo = $numcol-$numcolvar;
 
    my $ini;
 
-   #percorre colunas fixas
+   #loop through fixed size columns
    for (my $i=0; $i < $numcolfixo; $i++) {
        
        if ($refstruc->[$i]->{VARIA} == 0) {
-           #campos fixos
+           #fixed size column
            $ini = $refstruc->[$i]->{DESLOC};           
            my @elemento = @$refbytes[$ini..($ini+$refstruc->[$i]->{TAM}-1)];
 
-           #decodifica os bytes de acordo com o tipo de dado
-           my $valor = &decodifica_valores($refstruc->[$i]->{TIPO}, \@elemento, $refstruc->[$i]->{ESCALA});
+           #Send raw bytes to decode according to the column type
+           my $valor = &decodeValue($refstruc->[$i]->{TIPO}, \@elemento, $refstruc->[$i]->{ESCALA});
            
-           #grava o valor decodificado
+           #save decoded value
            $coluna->{$refstruc->[$i]->{NOME}}=$valor;
 
        }
        
    }
 
-   #inicio do index das colunas variaveis
+   #variable size columns index offset
    my $indexvar = $offnumcol+$bytesbitmap+4;
    my $fim = 0;
 
-   #percorre colunas variaveis
+   #loop through variable size columns
    $ini = $indexvar+ 2*$numcolvar;  
 
    my $i=$numcolfixo;
    foreach $elem (@$refstruc) {
 
        if ($elem->{VARIA} == 1) {
-           #campos variaveis
+           #variable columns
 
-           #indice para a posicao final do campo variavel
+           #end position of this column - offset
            $fimpos = $indexvar + 2*($i-$numcolfixo);
 
            my $valor=0;
 
            if (($fimpos+1) < scalar(@$refbytes)) {
-              #posicao final do campo variavel
+              #end position of this column
               $fim = (($refbytes->[$fimpos+1] << 8) + $refbytes->[$fimpos])-1; 
                               
-              #pega os bytes relativos a coluna
+              #extract raw bytes
               my @elemento = @$refbytes[$ini..$fim];
        
-              #decodifica os bytes de acordo com o tipo de dado
-              $valor = &decodifica_valores($elem->{TIPO}, \@elemento, $refstruc->[$i]->{ESCALA});
+              #Send raw bytes to decode according to the column type
+              $valor = &decodeValue($elem->{TIPO}, \@elemento, $refstruc->[$i]->{ESCALA});
               
            }
           
-           #grava o valor decodificado
+           #save decoded value
            $coluna->{$elem->{NOME}}=$valor;
 
-           #inicio do novo campo
+           #start of next column
            $ini = $fim+1;
 
            $i++;
 
-           #termina se acabaram as colunas
+           #no more columns then exit loop
            last unless ($i < $numcol);
 
        }       
@@ -645,7 +640,9 @@ sub decodifica_colunas {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captavaloresUPD {
+sub parseUpdateTrans {
+#get values involved in a update operation, before and after
+
    my $ultlinha = shift;
    my $refstruc = shift;
    my $row0 = shift;
@@ -659,18 +656,18 @@ sub captavaloresUPD {
    my @bytesrow0 = unpack("C*", $row0);
    my @bytesrow1 = unpack("C*", $row1);
 
-   #linha de referencia
+   #reference row
    my @bytes = @{$ultlinha->{$localizacao}};
 
-   #valores em bytes antes da alteracao
+   #raw bytes before update
    my @valantes = @bytes[0..($offset-1)];
    push(@valantes, @bytesrow0);
 
-   #valores em bytes depois da alteracao
+   #raw bytes after update
    my @valdepois = @bytes[0..($offset-1)];
    push(@valdepois, @bytesrow1);
 
-   #eh necessario complementar a linha pq os campos row0 e row1 nao trazem tudo 
+   #row0 and row1 columns do not have complete row. We must complete them
    my $maior = scalar(@valantes);
    $maior = scalar(@valdepois) if (scalar(@valdepois) > $maior);
 
@@ -684,22 +681,22 @@ sub captavaloresUPD {
       push(@valdepois, @aux);
    }
    
-   #decodifica os valores antes da alteracao
+   #Decode values before update
    my %cols_antes = ();
-   &decodifica_colunas(\@valantes, $refstruc, \%cols_antes);
+   &extractRawColumns(\@valantes, $refstruc, \%cols_antes);
 
 
-   #decodifica os valores depois da alteracao
+   #Decode values after update
    my %cols_dep = ();
-   &decodifica_colunas(\@valdepois, $refstruc, \%cols_dep);
+   &extractRawColumns(\@valdepois, $refstruc, \%cols_dep);
 
-   #verifica quais colunas mudaram de valor
+   #compare them to check what has changed
    foreach (keys %cols_antes) {
       if (!defined($cols_dep{$_})) {
          push @$modificacoes, "Coluna $_ removida ou null";        
       } 
       else {
-         push @$modificacoes, "Coluna $_: de $cols_antes{$_} para $cols_dep{$_}" if (&diferente($cols_antes{$_}, $cols_dep{$_}))
+         push @$modificacoes, "Coluna $_: de $cols_antes{$_} para $cols_dep{$_}" if (&IsDifferent($cols_antes{$_}, $cols_dep{$_}))
       }
    }
 
@@ -709,13 +706,14 @@ sub captavaloresUPD {
       }      
    }
 
-   #atribui os valores chaves
+   #save the key columns
    foreach (keys %{$chaves}) {$chaves->{$_} = "$_ = $cols_antes{$_}";}
 
-   #retrocede a linha de referencia para essa pagina-slot, 
-   #ja que estamos lendo as transacoes na ordem descendente
+   #make the current row the reference row for the prior transaction
+   #this is the reason we are reading transactions from last to first
    $ultlinha->{$localizacao} = \@valantes;
 
+   #just for test
    #foreach (keys %cols_antes)   {print "$_: $cols_antes{$_} ";}
    #print "\n";
    #foreach (keys %cols_dep)   {print "$_: $cols_dep{$_} ";}
@@ -727,7 +725,9 @@ sub captavaloresUPD {
 
 #-----------------------------------------------------------------------------------------------------
 
-sub captavaloresINSDEL {
+sub parseINSDELTrans {
+#get the values for INSERT and DELETE operations
+
    my $ultlinha = shift;
    my $refstruc = shift;
    my $row0 = shift;
@@ -738,9 +738,9 @@ sub captavaloresINSDEL {
 
    my @bytesrow0 = unpack("C*", $row0);
 
-   #decodifica os valores depois da alteracao
+   #decode raw bytes after the operation
    my %cols_dep = ();
-   &decodifica_colunas(\@bytesrow0, $refstruc, \%cols_dep);
+   &extractRawColumns(\@bytesrow0, $refstruc, \%cols_dep);
 
    foreach (keys %cols_dep) {
       if (defined($cols_dep{$_})) {
@@ -748,13 +748,14 @@ sub captavaloresINSDEL {
       }      
    }
 
-   #atribui os valores chaves
+   #save the key columns
    foreach (keys %{$chaves}) {$chaves->{$_} = "$_ = $cols_dep{$_}";}
 
-   #retrocede a linha de referencia para essa pagina-slot, 
-   #ja que estamos lendo as transacoes na ordem descendente
+   #make the current row the reference row for the prior transaction
+   #this is the reason we are reading transactions from last to first
    $ultlinha->{$localizacao} = \@bytesrow0;
 
+   #just for tests
    #foreach (keys %cols_antes)   {print "$_: $cols_antes{$_} ";}
    #print "\n";
    #foreach (keys %cols_dep)   {print "$_: $cols_dep{$_} ";}
@@ -765,10 +766,9 @@ sub captavaloresINSDEL {
 
 
 #-----------------------------------------------------------------------------------------------------
+sub getOperations() {
+#parse transaction rows of transaction log
 
-
-
-sub captalinhasOper() {
    my $pID = shift;
    my $banco = shift;
    my $server = shift;
@@ -785,7 +785,7 @@ sub captalinhasOper() {
    $Conn->Open($DSN);
 
 
-   #transacoes de update e insert, menos DDL, na ordem inversa que ocorreram
+   #get update, insert and delete, DML only, ordered by datetime from last to first
    my $SQL = "Select [Page ID], [Slot ID], [Offset in Row], [RowLog Contents 0], [RowLog Contents 1], Operation " .
              "from ::fn_dblog(null,null) where [Transaction ID] = \'$trID\' and " .
              "(Operation in ('LOP_MODIFY_ROW', 'LOP_INSERT_ROWS', 'LOP_MODIFY_COLUMNS', 'LOP_DELETE_ROWS' )) and (Context in ('LCX_CLUSTERED', 'LCX_MARK_AS_GHOST')) and " . 
@@ -807,33 +807,33 @@ sub captalinhasOper() {
       $row1 = $RS->Fields("RowLog Contents 1")->value;
       $operacao = $RS->Fields("Operation")->value;      
 
-      #converte de hexa para decimal
+      #hex to decimal
       $pageIDa = hex($pageIDa);
       $pageIDb = hex($pageIDb);
 
-      #precisa usar o sqlcmd pq o resultado nao vem como tabela
+      #need to query using sqlcmd b/c result is not a recordset. I'm not sure if its possible with OLEDB
       my $resp2 = &execquery("dbcc traceon(3604) WITH NO_INFOMSGS; dbcc page($banco, $pageIDa, $pageIDb, 3) WITH NO_INFOMSGS", $servidor); 
 
-      #pega o nome e o ID da tabela
-      my ($tabID, $tabnome) = &captatab($resp2, $banco, $servidor);
+      #get table ID and name
+      my ($tabID, $tabnome) = &parseObjectID($resp2, $banco, $servidor);
 
-      #estruturas para armazenar os resultados
+      #results will be saved in these structs
       my %chaves = ();
       my @modificacoes = ();
      
-      #mapeia a tabela e suas colunas
+      #map table and columns of transaction
       my @structable = ();
-      &captaestruturatabela($tabID, $banco, $servidor, \@structable);
+      &getTableStructure($tabID, $banco, $servidor, \@structable);
 
       my $localizacao = "$pageIDa:$pageIDb-$slotID";
 
-      #pega as chaves da linha alterada
-      &captachaves($tabID, $banco, $servidor, \%chaves, $slotID, $resp2);
+      #get key columns 
+      &getKeyColumns($tabID, $banco, $servidor, \%chaves, $slotID, $resp2);
 
-      #pega a string de bytes da linha alterada      
+      #get the raw bytes of the reference row
       if (!defined($ultlinha->{$localizacao})) {  
          my @auxlinha = ();        
-         @auxlinha = &stringtoarray(&captabytes($resp2, $slotID)) if ($operacao =~ /MODIFY/);            
+         @auxlinha = &stringtoarray(&getbytesfromDBCC($resp2, $slotID)) if ($operacao =~ /MODIFY/);            
          $ultlinha->{$localizacao} = \@auxlinha;
       }
 
@@ -842,11 +842,11 @@ sub captalinhasOper() {
 
          $tipo = "UPDATE";
          
-         #em alguns casos nao mapeados, o offset vem null -> LOP_MODIFY_COLUMN
+         #in some cases (LOP_MODIFY_COLUMN), offrow will be null !!! WHY ???
          if ($offrow) {
           
-            #mapeia os valores e as alteracoes dessa transacao
-            &captavaloresUPD($ultlinha, \@structable, $row0, $row1, $offrow, $localizacao, \@modificacoes, \%chaves);
+            #map the transaction
+            &parseUpdateTrans($ultlinha, \@structable, $row0, $row1, $offrow, $localizacao, \@modificacoes, \%chaves);
 
          }
 
@@ -854,22 +854,24 @@ sub captalinhasOper() {
       elsif ($operacao =~ /(INSERT|DELETE)/) {
          $tipo = $1;
 
-         #mapeia os valores e as alteracoes dessa transacao
-         &captavaloresINSDEL($ultlinha, \@structable, $row0, $localizacao, \@modificacoes, \%chaves);
+         #map the transaction
+         &parseINSDELTrans($ultlinha, \@structable, $row0, $localizacao, \@modificacoes, \%chaves);
 
       }
       
-      #monta registro com detalhes da operacao
+      #save details in the struct
       my $info = {
-            TAB    => $tabnome,                          # nome da tabela
-            TIPO   => $tipo,                             # UPDATE, INSERT ou DELETE
-            CHAVES => \%chaves,                          # hash com as colunas chaves e valores, identificando a linha alterada
-            MODIF  => \@modificacoes                     # updates nas colunas indicando de/para
+            TAB    => $tabnome,                          # table name
+            TIPO   => $tipo,                             # UPDATE, INSERT or DELETE
+            CHAVES => \%chaves,                          # perl hash with key columns and values of affected row
+            MODIF  => \@modificacoes                     # row updates showing pairs from value/to value
       };
 
-      #guarda os dados relativos a essa tabela
+      #save this struct
       push @{$pID->{DADOS}}, $info;
-      
+
+
+      #next transaction       
       $RS->MoveNext;
    }
 
