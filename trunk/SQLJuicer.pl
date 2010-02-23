@@ -1,9 +1,10 @@
 #!/usr/bin/perl -w
 # List database transactions using Transaction Log
-# use: SQLJuicer.pl -s server -b database [-h]
+# use: SQLJuicer.pl -s server -b database [-l PtBr] [-h]
 # 
 # -b :database name
 # -s :sql server name
+# -l :Output Language (PtBr)
 # -h :this help
 # 
 # Dependecies:
@@ -17,28 +18,92 @@ use Win32::OLE;
 use Win32::OLE::Const 'Microsoft ActiveX Data Objects';
 
 my $ver="0.1";
+my $lan_ch; 
 
 #options
 %args = ( );
-getopts("b:s:h", \%args);
+getopts("b:s:hl:", \%args);
+
+#-----------LOCALIZATION=ENGLISH----------------------
+my %l_eng = ("usage" => "usage",
+             "server" =>  "server",
+             "database" => "database",
+             "database name"  => "database name", 
+             "sql server name" => "sql server name",
+             "output Language" => "output Language", 
+             "this help" => "this help",
+             "Enter SQL Server name" => "Enter SQL Server name",
+             "Enter SQL Server database name" => "Enter SQL Server database name",
+             "Date" => "Date",
+             "Transaction" => "Transaction",
+             "Table" => "Table", 
+             "Operation Type" => "Operation Type",
+             "Keys" => "Keys",
+             "Values" => "Values",
+             "List SQL Server Transaction Log Operations" => "List SQL Server Transaction Log Operations",
+             "Type" => "Type",
+             "Value" => "Value",
+             "Column" => "Column",
+             "removed or null" => "removed or null",
+             "from" => "from",
+             "to" => "to"
+            );
+
+#default language is english
+our $lan_ch = \%l_eng;
+
+#-----------------------------------------------------
+
+#-----------LOCALIZATION=Brazilian Portuguese---------
+my %l_ptbr = ("usage" => "uso",
+             "server" =>  "servidor",
+             "database" => "banco de dados",
+             "database name"  => "nome do banco de dados", 
+             "sql server name" => "nome do servidor sql server",
+             "output Language" => "Idioma de saida", 
+             "this help" => "esta mensagem de help",
+             "Enter SQL Server name" => "Entre com o nome do servidor SQL Server",
+             "Enter SQL Server database name" => "Entre com o nome do banco de dados",
+             "Date" => "Data",
+             "Transaction" => "Transacao",
+             "Table" => "Tabela", 
+             "Operation Type" => "Tipo de Operacao",
+             "Keys" => "Chaves",
+             "Values" => "Valores",
+             "List SQL Server Transaction Log Operations" => "Lista transacoes a partir do SQL Server Transaction Log",
+             "Type" => "Tipo",
+             "Value" => "Valor",
+             "Column" => "Coluna",
+             "removed or null" => "removida ou null",
+             "from" => "de",
+             "to" => "para" 
+            );
+
+#change to brazilian portuguese if requested
+$lan_ch = \%l_ptbr if (($args{l}) && ($args{l} =~ /PtBr/i)); 
+
+#-----------------------------------------------------
+
+
 
 #write small help
 if ($args{h}) {
    &myheader;
    print <<DETALHE ;
-uso: SQLJuicer.pl -s servidor -b banco_de_dados [-h]
+$lan_ch->{"usage"}: SQLJuicer.pl -s $lan_ch->{"server"} -b $lan_ch->{"database"} [-l PtBr] [-h]
  
- -b :nome do banco
- -s :nome do servidor
- -h :mensagem de ajuda
+ -b :$lan_ch->{"database name"}
+ -s :$lan_ch->{"sql server name"}
+ -l :$lan_ch->{"output Language"} (PtBr)
+ -h :$lan_ch->{"this help"}
 
 DETALHE
    exit;
 }
 
-die "Entre com o nome do servidor SQL Server\n" unless ($args{s});
+die $lan_ch->{"Enter SQL Server name"}."\n" unless ($args{s});
 
-die "Entre com o nome do banco de dados SQL Server\n" unless ($args{b});
+die $lan_ch->{"Enter SQL Server database name"}."\n" unless ($args{b});
 
 # ----- script var
 my @tranDet;
@@ -75,15 +140,15 @@ foreach my $pID (@tranDet) {
 foreach my $pID (reverse @tranDet) {
 
    print "=" x 75 ."\n";
-   print "  Data: $pID->{DATA}     Transacao: $pID->{TID}\n";
+   print "  ".$lan_ch->{"Date"}.": $pID->{DATA}     ".$lan_ch->{"Transaction"}.": $pID->{TID}\n";
 
    foreach my $aDados (@{$pID->{DADOS}}) {
-      print "Tabela: $aDados->{TAB}       Tp Oper: $aDados->{TIPO}\n";
-      print "Chaves: \n";
+      print $lan_ch->{"Table"}.": $aDados->{TAB}       ". $lan_ch->{"Operation Type"}.": $aDados->{TIPO}\n";
+      print $lan_ch->{"Keys"}.": \n";
 
       foreach my $chave (keys %{$aDados->{CHAVES}}) {print " " x 9 . "$aDados->{CHAVES}->{$chave}\n";}
 
-      print "Valores: \n";
+      print $lan_ch->{"Values"}.": \n";
       foreach my $modif (@{$aDados->{MODIF}}) {print " " x 9 . "$modif\n";}
       print "\n";
    }
@@ -97,7 +162,7 @@ sub myheader {
    print <<CABEC;
 
 SQLJuicer.pl v$ver
-Lista Transacoes do Transaction Log
+$lan_ch->{"List SQL Server Transaction Log Operations"}
 http://code.google.com/p/sqljuicer/
 --------------------------------------------------------------------------
 
@@ -537,7 +602,7 @@ sub decodeValue {
    }
    else {
       # message for not translated column types
-      $valor = "Tipo $tipo valor=@$refvalores"; 
+      $valor = $lan_ch->{"Type"}." $tipo ".$lan_ch->{"value"}."=@$refvalores"; 
    }
 
    return $valor;        
@@ -693,16 +758,16 @@ sub parseUpdateTrans {
    #compare them to check what has changed
    foreach (keys %cols_antes) {
       if (!defined($cols_dep{$_})) {
-         push @$modificacoes, "Coluna $_ removida ou null";        
+         push @$modificacoes, $lan_ch->{"Column"}." $_ ".$lan_ch->{"removed or null"};        
       } 
       else {
-         push @$modificacoes, "Coluna $_: de $cols_antes{$_} para $cols_dep{$_}" if (&IsDifferent($cols_antes{$_}, $cols_dep{$_}))
+         push @$modificacoes, $lan_ch->{"Column"}." $_: ".$lan_ch->{"from"}." $cols_antes{$_} ".$lan_ch->{"to"}." $cols_dep{$_}" if (&IsDifferent($cols_antes{$_}, $cols_dep{$_}))
       }
    }
 
    foreach (keys %cols_dep) {
       if ((!defined($cols_antes{$_})) && (defined($cols_dep{$_}))) {
-         push @$modificacoes, "Coluna $_ de null para $cols_dep{$_}";
+         push @$modificacoes, $lan_ch->{"Column"}." $_ ".$lan_ch->{"from"}." null ".$lan_ch->{"to"}." $cols_dep{$_}";
       }      
    }
 
